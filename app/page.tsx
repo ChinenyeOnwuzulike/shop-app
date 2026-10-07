@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthButton from "./AuthButton";
+import { supabase } from "../lib/supabase";
+import { loadCart, saveCart, type CartItem } from "../lib/cart";
 
 type Product = { id: number; name: string; price: number; emoji: string };
-type CartItem = Product & { qty: number };
 
 const products: Product[] = [
   { id: 1, name: "Classic T-Shirt", price: 8500, emoji: "👕" },
@@ -18,35 +19,57 @@ const products: Product[] = [
 
 export default function Home() {
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
 
-  // Load saved cart when the page opens
+  // Load the cart, and load it again when someone signs in or out
   useEffect(() => {
-    const saved = localStorage.getItem("cart");
-    if (saved) setCart(JSON.parse(saved));
-    setLoaded(true);
+    loadCart().then(setCart);
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      setTimeout(() => loadCart().then(setCart), 0);
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  // Save cart whenever it changes
+  // Live updates: when the cart changes somewhere else (like the phone app), reload it
   useEffect(() => {
-    if (loaded) localStorage.setItem("cart", JSON.stringify(cart));
-  }, [cart, loaded]);
+    let timer: ReturnType<typeof setTimeout>;
+    const channel = supabase
+      .channel("cart-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cart_items" },
+        () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => loadCart().then(setCart), 400);
+        }
+      )
+      .subscribe();
+    return () => {
+      clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  function updateCart(newCart: CartItem[]) {
+    setCart(newCart);
+    saveCart(newCart);
+  }
 
   function addToCart(product: Product) {
-    setCart((current) => {
-      const existing = current.find((item) => item.id === product.id);
-      if (existing) {
-        return current.map((item) =>
+    const existing = cart.find((item) => item.id === product.id);
+    if (existing) {
+      updateCart(
+        cart.map((item) =>
           item.id === product.id ? { ...item, qty: item.qty + 1 } : item
-        );
-      }
-      return [...current, { ...product, qty: 1 }];
-    });
+        )
+      );
+    } else {
+      updateCart([...cart, { ...product, qty: 1 }]);
+    }
   }
 
   function removeOne(id: number) {
-    setCart((current) =>
-      current
+    updateCart(
+      cart
         .map((item) => (item.id === id ? { ...item, qty: item.qty - 1 } : item))
         .filter((item) => item.qty > 0)
     );
@@ -59,11 +82,11 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white shadow px-6 py-4 flex justify-between items-center">
         <h1 className="text-2xl font-bold">My Shop</h1>
-                <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
           <AuthButton />
           <span className="text-sm text-gray-500">Cart ({count})</span>
         </div>
-              </header>
+      </header>
 
       <section className="max-w-5xl mx-auto p-6">
         <h2 className="text-xl font-semibold mb-4">Products</h2>

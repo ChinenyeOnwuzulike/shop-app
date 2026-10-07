@@ -2,14 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-
-type CartItem = {
-  id: number;
-  name: string;
-  price: number;
-  emoji: string;
-  qty: number;
-};
+import { loadCart, clearCart, type CartItem } from "../../lib/cart";
 
 export default function Checkout() {
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -17,8 +10,7 @@ export default function Checkout() {
   const [form, setForm] = useState({ name: "", email: "", address: "" });
 
   useEffect(() => {
-    const saved = localStorage.getItem("cart");
-    if (saved) setCart(JSON.parse(saved));
+    loadCart().then(setCart);
   }, []);
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -27,7 +19,7 @@ export default function Checkout() {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-    async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     const res = await fetch("/api/orders", {
@@ -41,7 +33,7 @@ export default function Checkout() {
       return;
     }
 
-    localStorage.removeItem("cart");
+    await clearCart();
     setCart([]);
     setPlaced(true);
   }
